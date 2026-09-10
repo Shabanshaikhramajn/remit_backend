@@ -21,7 +21,19 @@ export const findUserById = async (
     });
 };
 
-export const createUser = async (
-    
-
-)
+export const createUser = async (data: {
+  email: string;
+  password: string;
+  name?: string;
+}) => {
+  return prisma.user.create({
+    data,
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+};
