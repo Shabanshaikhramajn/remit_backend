@@ -1,7 +1,7 @@
 import {Router} from "express";
 import {z} from "zod";
 
-import {AuthError, login, register} from "./auth_service";
+import {AuthError, login, register, refreshAccessToken} from "./auth_service";
 
 
 const router = Router();
@@ -70,6 +70,46 @@ router.post("/login", async (req,res)=> {
 
 
 });
+
+router.post("/refresh-token", async (req,res)=> {
+ const result = z
+ .object({
+    refreshToken: z.string().min(1)
+ }).safeParse(req.body);
+
+   if(!result.success){
+    return res.status(400).json({
+        message: "Refresh token is required",
+        errors: result.error.flatten()
+    });
+   }
+
+   try {
+    const response = await refreshAccessToken(result.data.refreshToken);
+    return res.status(200).json(response);
+   }catch(error){
+       if(error instanceof AuthError && error.code === "INVALID_REFRESH_TOKEN")
+            {
+                return res.status(401).json({
+                    message: "Refresh token have expired"
+                });
+            }
+
+        if(error instanceof Error && error.name === "JsonWebTokenError"){
+            return res.status(401).json({
+                message: "Invalid refresh token"
+            });
+        }
+        return res.status(500).json({
+            message: "Internal server error"
+        });
+
+   }
+
+})
+
+
+
 
 export default router;
 

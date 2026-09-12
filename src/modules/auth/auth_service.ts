@@ -1,52 +1,62 @@
 import { Prisma } from "@prisma/client";
 import {
-  createUser,
-  findUserByEmail,
+    createUser,
+    findUserByEmail,
 } from "./auth_repository.js";
 import {
-  comparePassword,
-  hashPassword,
+    comparePassword,
+    hashPassword,
 } from "../../utils/password.js";
-import { generateAccessToken } from "../../utils/jwt.js";
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
+
+const createTokenPair = (userId: string)=> {
+    return {
+        accessToken: generateAccessToken(userId),
+        refreshToken: generateRefreshToken(userId)
+    }
+}
+
 
 export class AuthError extends Error {
     constructor(
-        public readonly code: "EMAIL_IN_USE" | "INVALID_CREDENTIALS",
+        public readonly code: "EMAIL_IN_USE" | "INVALID_CREDENTIALS" | "INVALID_REFRESH_TOKEN",
     ) {
         super(code);
     }
 }
 
+
+
 export const register = async (input: {
     email: string;
-    password : string;
+    password: string;
     name?: string;
-})=> {
+}) => {
     const email = input.email.trim().toLowerCase();
 
     const existingUser = await findUserByEmail(email);
 
-    if(existingUser){
+    if (existingUser) {
         throw new AuthError("EMAIL_IN_USE");
     }
-   const password = await hashPassword(input.password);
+    const password = await hashPassword(input.password);
 
-   try {
-    const user = await createUser({
-        email,
-        password,
-        name: input.name?.trim() || undefined,
-    });
-    return {
-        user,
-        accessToken: generateAccessToken(user.id)
+    try {
+        const user = await createUser({
+            email,
+            password,
+            name: input.name?.trim() || undefined,
+        });
+        return {
+            user,
+            ...createTokenPair(user.id)
+        }
+    } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            throw new AuthError("EMAIL_IN_USE");
+        }
+        throw error;
     }
-   }catch (error){
-    if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"){
-        throw new AuthError("EMAIL_IN_USE");
-    }
-    throw error;
-   }
 
 };
 
@@ -54,28 +64,35 @@ export const login = async (input: {
     email: string;
     password: string;
 
-})=> {
- const email = input.email.trim().toLowerCase();
- const user = await findUserByEmail(email);
+}) => {
+    const email = input.email.trim().toLowerCase();
+    const user = await findUserByEmail(email);
 
-    if(!user || !(await comparePassword(input.password, user.password))){
-    throw new AuthError("INVALID_CREDENTIALS");
-  }
+    if (!user || !(await comparePassword(input.password, user.password))) {
+        throw new AuthError("INVALID_CREDENTIALS");
+    }
 
-  return {
-    user: {
-        id: user.id,
-        email: user.email,
-        name : user.name,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-    },
-    accessToken: generateAccessToken(user.id)
-  }
+    return {
+        user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt
+        },
+        ...createTokenPair(user.id)
+    }
+}
 
-
-
-
-
+export const refreshAccessToken = async (refreshToken: string)=> {
+    const payload = verifyRefreshToken(refreshToken);
+    const user = await findUserByEmail(payload.userId);
+    if(!user){
+        throw new AuthError("INVALID_REFRESH_TOKEN");
+    }
+    return {
+        accessToken: generateAccessToken(user.id),
+        refreshToken: generateRefreshToken(user.id)
+    }
 }
 
